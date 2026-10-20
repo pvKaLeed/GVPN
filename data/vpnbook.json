@@ -1,127 +1,106 @@
 {
-  "source": "VPNBook",
-  "updated_at": "2026-10-20T06:25:32.308000+00:00",
-  "official_page": "https://www.vpnbook.com/freevpn/openvpn",
+  "source": "https://www.vpnbook.com/freevpn/openvpn",
+  "updated_at": "2026-10-20T07:05:53.287666+00:00",
   "servers": [
     {
-      "id": "vpnbook-ca149",
-      "source": "VPNBook",
-      "hostname": "ca149.vpnbook.com",
-      "country": "Canada",
-      "country_code": "CA",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
-    },
-    {
-      "id": "vpnbook-ca196",
-      "source": "VPNBook",
-      "hostname": "ca196.vpnbook.com",
-      "country": "Canada",
-      "country_code": "CA",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
-    },
-    {
-      "id": "vpnbook-de20",
-      "source": "VPNBook",
-      "hostname": "de20.vpnbook.com",
-      "country": "Germany",
-      "country_code": "DE",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
-    },
-    {
-      "id": "vpnbook-de220",
-      "source": "VPNBook",
-      "hostname": "de220.vpnbook.com",
-      "country": "Germany",
-      "country_code": "DE",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
-    },
-    {
-      "id": "vpnbook-fr200",
-      "source": "VPNBook",
-      "hostname": "fr200.vpnbook.com",
-      "country": "France",
-      "country_code": "FR",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
-    },
-    {
-      "id": "vpnbook-fr231",
-      "source": "VPNBook",
-      "hostname": "fr231.vpnbook.com",
-      "country": "France",
-      "country_code": "FR",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
-    },
-    {
-      "id": "vpnbook-uk205",
-      "source": "VPNBook",
-      "hostname": "uk205.vpnbook.com",
-      "country": "United Kingdom",
-      "country_code": "GB",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
-    },
-    {
-      "id": "vpnbook-uk68",
-      "source": "VPNBook",
-      "hostname": "uk68.vpnbook.com",
-      "country": "United Kingdom",
-      "country_code": "GB",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
-    },
-    {
-      "id": "vpnbook-us16",
-      "source": "VPNBook",
-      "hostname": "us16.vpnbook.com",
+      "id": "us16",
+      "name": "US Server 1",
       "country": "United States",
-      "country_code": "US",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
+      "host": "us16.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/us16-tcp443.ovpn",
+      "sha256": "632ac555b3b980e60eb8ff1391f0227f9acc949b6c5270430d178c205ff27bd8"
     },
     {
-      "id": "vpnbook-us178",
-      "source": "VPNBook",
-      "hostname": "us178.vpnbook.com",
+      "id": "us178",
+      "name": "US Server 2",
       "country": "United States",
-      "country_code": "US",
-      "config_download_urls": [],
-      "config_path": null,
-      "ping_ms_source": null,
-      "speed_bps_source": null,
-      "status": "server_listed_config_not_downloaded"
+      "host": "us178.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/us178-tcp443.ovpn",
+      "sha256": "28041551a9386265356bc4645cce8e7a145a1dfe07419faa2d6c958156923421"
+    },
+    {
+      "id": "ca149",
+      "name": "Canada Server 1",
+      "country": "Canada",
+      "host": "ca149.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/ca149-tcp443.ovpn",
+      "sha256": "39c7151a1655e0c53111c1eae54c06cae4fe69e540046811830c5e2ae0606889"
+    },
+    {
+      "id": "ca196",
+      "name": "Canada Server 2",
+      "country": "Canada",
+      "host": "ca196.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/ca196-tcp443.ovpn",
+      "sha256": "8bcc35e476790c1c131f1110d9b9a15b28d7d67619992f77a91964c26671049b"
+    },
+    {
+      "id": "uk205",
+      "name": "UK Server 1",
+      "country": "United Kingdom",
+      "host": "uk205.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/uk205-tcp443.ovpn",
+      "sha256": "8eba5b7ac67ebb6aaba3d0ffaadd70e6b6774fec560120664e4288cb6f07c4b1"
+    },
+    {
+      "id": "uk68",
+      "name": "UK Server 2",
+      "country": "United Kingdom",
+      "host": "uk68.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/uk68-tcp443.ovpn",
+      "sha256": "08833b405968a1e4fd68c059b3994abe9e5cd603f19575097c6a5da814b889b0"
+    },
+    {
+      "id": "de20",
+      "name": "Germany Server 1",
+      "country": "Germany",
+      "host": "de20.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/de20-tcp443.ovpn",
+      "sha256": "3f88c08c52b6e67e797dfa56a2adf96cf7823acf17bb33787780431a07529849"
+    },
+    {
+      "id": "de220",
+      "name": "Germany Server 2",
+      "country": "Germany",
+      "host": "de220.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/de220-tcp443.ovpn",
+      "sha256": "e277f3c2768e57ce6ab7bfdde16349892166389e64edbadac2395d8a922135f6"
+    },
+    {
+      "id": "fr200",
+      "name": "France Server 1",
+      "country": "France",
+      "host": "fr200.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/fr200-tcp443.ovpn",
+      "sha256": "d5b3f04557e7be615295ff930396265191f1995249c0b150177d1388795616ca"
+    },
+    {
+      "id": "fr231",
+      "name": "France Server 2",
+      "country": "France",
+      "host": "fr231.vpnbook.com",
+      "protocol": "TCP",
+      "port": 443,
+      "config_path": "ovpn/vpnbook/fr231-tcp443.ovpn",
+      "sha256": "cdec1e2a38dc0aba5645364841c9baf23f7e10ee37852d9087927279a1ae77df"
     }
   ]
 }
