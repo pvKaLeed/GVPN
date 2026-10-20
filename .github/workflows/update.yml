@@ -29,8 +29,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      
       - name: Update server data
-        run: python scripts/update_servers.py
+        run: |
+          python scripts/update_servers.py
+          python scripts/update_vpnbook.py
+
 
       - name: Commit updated files
         run: |
