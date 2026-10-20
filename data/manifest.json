@@ -1,1 +1,9 @@
-
+{
+  "app": "GVPN",
+  "schema_version": 1,
+  "updated_at": null,
+  "sources": {
+    "vpngate": "data/vpngate.json",
+    "vpnbook": "data/vpnbook.json"
+  }
+}
