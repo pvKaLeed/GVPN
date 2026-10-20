@@ -38,65 +38,73 @@ def write_json(path, value):
     )
 
 
+
 def update_vpngate():
     response = requests.get(
-        VPNGATE_URL,
-        headers=HEADERS,
+        "https://www.vpngate.net/api/iphone/",
+        headers={"User-Agent": "Mozilla/5.0 GVPN/1.0"},
         timeout=60
     )
     response.raise_for_status()
     response.encoding = "utf-8"
 
-    lines = [
-        line for line in response.text.splitlines()
-        if line and not line.startswith("*")
-    ]
+    lines = response.text.splitlines()
 
-    if len(lines) < 2:
-        raise RuntimeError("VPN Gate returned no usable server data")
+    # Find the real CSV header instead of assuming a fixed line number.
+    header_index = next(
+        (
+            i for i, line in enumerate(lines)
+            if line.lstrip("#").startswith("HostName,")
+            or line.lstrip("#").startswith("HostName,IP,")
+        ),
+        None
+    )
 
-    reader = csv.DictReader(io.StringIO("\n".join(lines)))
+    if header_index is None:
+        raise RuntimeError(
+            "VPN Gate CSV header not found. "
+            f"Response preview: {response.text[:300]!r}"
+        )
+
+    header = lines[header_index].lstrip("#")
+    csv_text = "\n".join([header] + lines[header_index + 1:])
+    reader = csv.DictReader(io.StringIO(csv_text))
+
     servers = []
     CONFIGS.mkdir(parents=True, exist_ok=True)
 
     for row in reader:
-        host = row.get("HostName", "").strip()
-        ip = row.get("IP", "").strip()
-        encoded = row.get("OpenVPN_ConfigData_Base64", "").strip()
+        # Ignore comments and non-server rows.
+        host = (row.get("HostName") or "").strip()
+        ip = (row.get("IP") or "").strip()
+        encoded = (
+            row.get("OpenVPN_ConfigData_Base64")
+            or row.get("#OpenVPN_ConfigData_Base64")
+            or ""
+        ).strip()
 
-        if not host or not ip or not encoded:
+        if not host or host.startswith("*") or not ip or not encoded:
             continue
 
         try:
-            config_bytes = base64.b64decode(
-                encoded,
-                validate=True
-            )
+            config_bytes = base64.b64decode(encoded, validate=True)
             config_text = config_bytes.decode("utf-8", errors="replace")
         except Exception:
             continue
 
-        if "client" not in config_text:
+        if not re.search(r"(?m)^\s*client\s*$", config_text):
             continue
 
         filename = safe_name(f"{host}_{ip}") + ".ovpn"
-        config_path = CONFIGS / filename
-        config_path.write_text(config_text, encoding="utf-8")
+        (CONFIGS / filename).write_text(
+            config_text, encoding="utf-8"
+        )
 
-        try:
-            ping_ms = int(row.get("Ping", "0"))
-        except (ValueError, TypeError):
-            ping_ms = None
-
-        try:
-            speed_bps = int(row.get("Speed", "0"))
-        except (ValueError, TypeError):
-            speed_bps = None
-
-        try:
-            sessions = int(row.get("NumVpnSessions", "0"))
-        except (ValueError, TypeError):
-            sessions = None
+        def parse_int(value):
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return None
 
         servers.append({
             "id": hashlib.sha256(
@@ -105,11 +113,11 @@ def update_vpngate():
             "source": "VPN Gate",
             "hostname": host,
             "ip": ip,
-            "country": row.get("CountryLong", ""),
-            "country_code": row.get("CountryShort", ""),
-            "ping_ms_source": ping_ms,
-            "speed_bps_source": speed_bps,
-            "sessions_reported": sessions,
+            "country": (row.get("CountryLong") or "").strip(),
+            "country_code": (row.get("CountryShort") or "").strip(),
+            "ping_ms_source": parse_int(row.get("Ping")),
+            "speed_bps_source": parse_int(row.get("Speed")),
+            "sessions_reported": parse_int(row.get("NumVpnSessions")),
             "config_path": f"configs/vpngate/{filename}",
             "config_sha256": hashlib.sha256(
                 config_bytes
@@ -118,7 +126,8 @@ def update_vpngate():
 
     if not servers:
         raise RuntimeError(
-            "No valid VPN Gate configs found; refusing to publish empty data"
+            "No valid VPN Gate configs found. "
+            "Check the API response and CSV column names in Actions logs."
         )
 
     write_json(DATA / "vpngate.json", {
