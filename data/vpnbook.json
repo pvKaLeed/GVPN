@@ -1,5 +1,127 @@
 {
   "source": "VPNBook",
-  "updated_at": null,
-  "servers": []
+  "updated_at": "2026-10-20T06:25:32.308000+00:00",
+  "official_page": "https://www.vpnbook.com/freevpn/openvpn",
+  "servers": [
+    {
+      "id": "vpnbook-ca149",
+      "source": "VPNBook",
+      "hostname": "ca149.vpnbook.com",
+      "country": "Canada",
+      "country_code": "CA",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    },
+    {
+      "id": "vpnbook-ca196",
+      "source": "VPNBook",
+      "hostname": "ca196.vpnbook.com",
+      "country": "Canada",
+      "country_code": "CA",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    },
+    {
+      "id": "vpnbook-de20",
+      "source": "VPNBook",
+      "hostname": "de20.vpnbook.com",
+      "country": "Germany",
+      "country_code": "DE",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    },
+    {
+      "id": "vpnbook-de220",
+      "source": "VPNBook",
+      "hostname": "de220.vpnbook.com",
+      "country": "Germany",
+      "country_code": "DE",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    },
+    {
+      "id": "vpnbook-fr200",
+      "source": "VPNBook",
+      "hostname": "fr200.vpnbook.com",
+      "country": "France",
+      "country_code": "FR",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    },
+    {
+      "id": "vpnbook-fr231",
+      "source": "VPNBook",
+      "hostname": "fr231.vpnbook.com",
+      "country": "France",
+      "country_code": "FR",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    },
+    {
+      "id": "vpnbook-uk205",
+      "source": "VPNBook",
+      "hostname": "uk205.vpnbook.com",
+      "country": "United Kingdom",
+      "country_code": "GB",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    },
+    {
+      "id": "vpnbook-uk68",
+      "source": "VPNBook",
+      "hostname": "uk68.vpnbook.com",
+      "country": "United Kingdom",
+      "country_code": "GB",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    },
+    {
+      "id": "vpnbook-us16",
+      "source": "VPNBook",
+      "hostname": "us16.vpnbook.com",
+      "country": "United States",
+      "country_code": "US",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    },
+    {
+      "id": "vpnbook-us178",
+      "source": "VPNBook",
+      "hostname": "us178.vpnbook.com",
+      "country": "United States",
+      "country_code": "US",
+      "config_download_urls": [],
+      "config_path": null,
+      "ping_ms_source": null,
+      "speed_bps_source": null,
+      "status": "server_listed_config_not_downloaded"
+    }
+  ]
 }
