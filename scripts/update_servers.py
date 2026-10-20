@@ -9,7 +9,7 @@ from pathlib import Path
 
 import requests
 
-from update_vpnbook import update_vpnbook
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
