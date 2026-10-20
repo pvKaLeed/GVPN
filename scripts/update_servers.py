@@ -157,28 +157,22 @@ def update_vpngate():
 
 
 def main():
-    DATA.mkdir(parents=True, exist_ok=True)
-
     update_vpngate()
 
-    # Do not silently hide VPNBook failures.
-    update_vpnbook()
+    import subprocess
+    import sys
+    from pathlib import Path
 
-    write_json(DATA / "manifest.json", {
-        "app": "GVPN",
-        "schema_version": 1,
-        "updated_at": now_utc(),
-        "sources": {
-            "vpngate": "data/vpngate.json",
-            "vpnbook": "data/vpnbook.json",
-        },
-        "config_directories": {
-            "vpngate": "ovpn/vpngate/",
-            "vpnbook": "ovpn/vpnbook/",
-        },
-    })
+    root = Path(__file__).resolve().parents[1]
 
-    print("GVPN server and config update completed.")
+    subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "update_vpnbook.py"),
+        ],
+        check=True,
+        cwd=root,
+    )
 
 
 if __name__ == "__main__":
