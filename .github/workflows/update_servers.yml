@@ -1,0 +1,81 @@
+name: Update GVPN Servers
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  push:
+    paths:
+      - "scripts/**"
+      - "requirements.txt"
+      - ".github/workflows/update-servers.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-gvpn-servers
+  cancel-in-progress: false
+
+jobs:
+  update-servers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Update server data and OpenVPN configs
+        run: python scripts/update_servers.py
+
+      - name: Validate JSON and config paths
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".")
+          for name in ("vpnbook", "vpngate"):
+              path = root / "data" / f"{name}.json"
+              data = json.loads(path.read_text(encoding="utf-8"))
+              assert data.get("servers"), f"{name}: no servers"
+
+              for server in data["servers"]:
+                  config = server.get("config_path")
+                  assert config, f"{name}: missing config_path"
+                  assert config.startswith(f"ovpn/{name}/")
+                  assert config.endswith(".ovpn")
+                  assert (root / config).is_file(), (
+                      f"{name}: missing config file {config}"
+                  )
+
+              print(f"{name}: validated {len(data['servers'])} configs")
+          PY
+
+      - name: Commit updated configs and JSON
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data/ ovpn/
+          if ! git diff --cached --quiet; then
+            git commit -m "Update VPN server data and OpenVPN configs"
+            git push
+          else
+            echo "No changes to commit."
+          fi
