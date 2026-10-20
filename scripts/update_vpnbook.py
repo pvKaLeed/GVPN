@@ -1,319 +1,256 @@
+# scripts/update_vpnbook.py
+
 import hashlib
-import io
 import json
 import re
+import shutil
+import tempfile
 import zipfile
+
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
-
-import requests
-from bs4 import BeautifulSoup
+from playwright.sync_api import (
+    sync_playwright,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "data"
-OVPN = ROOT / "ovpn" / "vpnbook"
+OUTPUT_DIR = ROOT / "ovpn" / "vpnbook"
+JSON_FILE = ROOT / "data" / "vpnbook.json"
+PAGE_URL = "https://www.vpnbook.com/freevpn/openvpn"
 
-PAGE = "https://www.vpnbook.com/freevpn/openvpn"
-BUNDLE_BASE = "https://www.vpnbook.com/free-openvpn-account/"
-
-HEADERS = {"User-Agent": "Mozilla/5.0 GVPN/1.0"}
-TIMEOUT = 45
-
-COUNTRIES = {
-    "us": ("US", "United States"),
-    "ca": ("CA", "Canada"),
-    "uk": ("GB", "United Kingdom"),
-    "de": ("DE", "Germany"),
-    "fr": ("FR", "France"),
-}
-
-MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024
+SERVERS = [
+    {"id": "us16", "name": "US Server 1", "country": "United States"},
+    {"id": "us178", "name": "US Server 2", "country": "United States"},
+    {"id": "ca149", "name": "Canada Server 1", "country": "Canada"},
+    {"id": "ca196", "name": "Canada Server 2", "country": "Canada"},
+    {"id": "uk205", "name": "UK Server 1", "country": "United Kingdom"},
+    {"id": "uk68", "name": "UK Server 2", "country": "United Kingdom"},
+    {"id": "de20", "name": "Germany Server 1", "country": "Germany"},
+    {"id": "de220", "name": "Germany Server 2", "country": "Germany"},
+    {"id": "fr200", "name": "France Server 1", "country": "France"},
+    {"id": "fr231", "name": "France Server 2", "country": "France"},
+]
 
 
-def now_utc():
-    return datetime.now(timezone.utc).isoformat()
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
-def safe_name(value):
-    value = re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
-    return value.strip("._")[:120] or "config"
+def validate_ovpn(data: bytes, expected_host: str) -> str:
+    text = data.decode("utf-8", errors="replace")
+    if len(text) < 100:
+        raise ValueError("Downloaded config is too small.")
 
+    if not re.search(r"(?m)^\s*client\s*$", text):
+        raise ValueError("Config is missing the OpenVPN client directive.")
 
-def write_json(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(
-        json.dumps(value, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    temp.replace(path)
+    remotes = re.findall(r"(?m)^\s*remote\s+(\S+)", text)
+    if not remotes:
+        raise ValueError("Config has no remote server.")
 
-
-def valid_ovpn(content):
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return False
-
-    has_client = bool(re.search(r"(?m)^\s*client\s*$", text))
-    has_remote = bool(re.search(r"(?m)^\s*remote\s+\S+", text))
-    return has_client and has_remote
-
-
-def discover_bundle_urls(session):
-    response = session.get(
-        PAGE, headers=HEADERS, timeout=TIMEOUT
-    )
-    response.raise_for_status()
-
-    soup = BeautifulSoup(response.text, "html.parser")
-    found = {country: [] for country in COUNTRIES}
-
-    # First use links explicitly published by the official page.
-    for anchor in soup.find_all("a", href=True):
-        url = urljoin(response.url, anchor["href"].strip())
-        parsed = urlparse(url)
-
-        if parsed.scheme != "https":
-            continue
-        if parsed.hostname not in {
-            "vpnbook.com", "www.vpnbook.com"
-        }:
-            continue
-        if not parsed.path.lower().endswith(".zip"):
-            continue
-
-        label = (
-            anchor.get_text(" ", strip=True) + " " +
-            parsed.path
-        ).lower()
-
-        for country in COUNTRIES:
-            if re.search(
-                r"(?<![a-z0-9])" + country + r"(?![a-z0-9])",
-                label,
-            ):
-                found[country].append(url)
-
-    # Known official legacy bundle naming convention.
-    # These are candidates, not guaranteed to exist.
-    for country in COUNTRIES:
-        fallback = (
-            BUNDLE_BASE
-            + f"vpnbook-openvpn-{country}.zip"
-        )
-        if fallback not in found[country]:
-            found[country].append(fallback)
-
-    return found
-
-
-def download_zip(session, url):
-    response = session.get(
-        url,
-        headers=HEADERS,
-        timeout=TIMEOUT,
-        stream=True,
-    )
-    response.raise_for_status()
-
-    content = bytearray()
-
-    for chunk in response.iter_content(chunk_size=65536):
-        if not chunk:
-            continue
-
-        content.extend(chunk)
-
-        if len(content) > MAX_DOWNLOAD_BYTES:
-            raise RuntimeError("ZIP download exceeded size limit.")
-
-    data = bytes(content)
-
-    if not zipfile.is_zipfile(io.BytesIO(data)):
-        raise RuntimeError(
-            f"Response is not a ZIP archive: {url}"
+    if not any(expected_host.lower() in host.lower() for host in remotes):
+        raise ValueError(
+            f"Config remote does not match {expected_host}: {remotes}"
         )
 
-    return data
+    return text
 
 
-def extract_profiles(zip_bytes):
-    profiles = {}
-
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
-        for info in archive.infolist():
-            if info.is_dir():
-                continue
-
-            # Never extract arbitrary archive paths.
-            name = Path(info.filename).name
-
-            if not name.lower().endswith(".ovpn"):
-                continue
-
-            if info.file_size > 2 * 1024 * 1024:
-                continue
-
-            content = archive.read(info)
-
-            if not valid_ovpn(content):
-                continue
-
-            filename = safe_name(name)
-            profiles[filename] = content
-
-    return profiles
-
-
-def fetch_country_profiles(session, country, urls):
-    errors = []
-
-    for url in urls:
+def click_visible_text(page, text: str) -> None:
+    """Click a visible element matching text; fail clearly if the UI changed."""
+    locator = page.get_by_text(text, exact=False)
+    for index in range(locator.count()):
+        candidate = locator.nth(index)
         try:
-            print(f"VPNBook [{country.upper()}]: downloading {url}")
-            data = download_zip(session, url)
-            profiles = extract_profiles(data)
+            if candidate.is_visible() and candidate.is_enabled():
+                candidate.click(timeout=5000)
+                return
+        except Exception:
+            continue
 
-            if profiles:
-                print(
-                    f"VPNBook [{country.upper()}]: "
-                    f"validated {len(profiles)} profiles"
-                )
-                return profiles
+    raise RuntimeError(f"Could not click visible VPNBook element: {text!r}")
 
-            errors.append(f"{url}: no valid .ovpn profiles")
 
-        except (requests.RequestException, RuntimeError, zipfile.BadZipFile) as exc:
-            errors.append(f"{url}: {exc}")
+def click_download(page) -> None:
+    # Prefer a real button with a download-related label.
+    buttons = page.locator("button")
+    for index in range(buttons.count()):
+        button = buttons.nth(index)
+        try:
+            if not button.is_visible() or not button.is_enabled():
+                continue
+            label = (button.inner_text(timeout=1000) or "").strip().lower()
+            if "download" in label or "configuration" in label:
+                button.click(timeout=5000)
+                return
+        except Exception:
+            continue
 
-    print(
-        f"VPNBook [{country.upper()}]: no usable bundle found"
+    # Fallback for links or other accessible controls.
+    for selector in (
+        'a[download]',
+        '[role="button"]:has-text("Download")',
+        'button:has-text("Download")',
+        'a:has-text("Download")',
+    ):
+        locator = page.locator(selector)
+        for index in range(locator.count()):
+            candidate = locator.nth(index)
+            try:
+                if candidate.is_visible() and candidate.is_enabled():
+                    candidate.click(timeout=5000)
+                    return
+            except Exception:
+                continue
+
+    raise RuntimeError(
+        "VPNBook download control was not found or is disabled. "
+        "The official page UI may have changed."
     )
-    for error in errors:
-        print("  -", error)
-
-    return {}
 
 
-def update_vpnbook():
-    print("Fetching VPNBook official page...")
+def extract_ovpn(download_path: Path, expected_host: str) -> bytes:
+    raw = download_path.read_bytes()
 
-    with requests.Session() as session:
-        bundle_urls = discover_bundle_urls(session)
+    # Some download flows return one .ovpn directly.
+    if b"client" in raw and b"remote " in raw:
+        validate_ovpn(raw, expected_host)
+        return raw
 
-        profiles = {}
-        profile_countries = {}
-
-        for country in COUNTRIES:
-            country_profiles = fetch_country_profiles(
-                session,
-                country,
-                bundle_urls[country],
-            )
-
-            for filename, content in country_profiles.items():
-                # Avoid collisions between country bundles.
-                output_name = safe_name(
-                    f"{country}_{filename}"
-                )
-
-                profiles[output_name] = content
-                profile_countries[output_name] = country
-
-    if not profiles:
-        raise RuntimeError(
-            "VPNBook returned no validated .ovpn profiles. "
-            "Existing config files and vpnbook.json were preserved. "
-            "Inspect the official download flow before updating URLs."
+    # Other flows may return a ZIP containing multiple profiles.
+    if not zipfile.is_zipfile(download_path):
+        raise ValueError(
+            f"Download is neither an OpenVPN profile nor a ZIP: "
+            f"{download_path.name}"
         )
 
-    # Build a complete staging directory before replacing old files.
-    OVPN.parent.mkdir(parents=True, exist_ok=True)
-    stage = OVPN.with_name("vpnbook_staging")
-    stage.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(download_path) as archive:
+        candidates = [
+            name for name in archive.namelist()
+            if name.lower().endswith(".ovpn") and not name.startswith("__MACOSX/")
+        ]
 
-    servers = []
+        for name in candidates:
+            content = archive.read(name)
+            try:
+                validate_ovpn(content, expected_host)
+                return content
+            except (ValueError, UnicodeDecodeError):
+                continue
 
-    try:
-        for filename, content in profiles.items():
-            (stage / filename).write_bytes(content)
-
-            country = profile_countries[filename]
-            country_code, country_name = COUNTRIES[country]
-
-            text = content.decode("utf-8-sig")
-            remote_match = re.search(
-                r"(?m)^\s*remote\s+(\S+)(?:\s+(\d+))?",
-                text,
-            )
-            hostname = (
-                remote_match.group(1)
-                if remote_match else None
-            )
-            port = (
-                int(remote_match.group(2))
-                if remote_match and remote_match.group(2)
-                else None
-            )
-
-            protocol = "unknown"
-            name_lower = filename.lower()
-
-            for candidate in (
-                "tcp443", "tcp80", "udp53", "udp25000"
-            ):
-                if candidate in name_lower:
-                    protocol = candidate
-                    break
-
-            relative_path = f"ovpn/vpnbook/{filename}"
-
-            servers.append({
-                "id": "vpnbook-" + hashlib.sha256(
-                    filename.encode()
-                ).hexdigest()[:16],
-                "source": "VPNBook",
-                "hostname": hostname,
-                "port": port,
-                "country": country_name,
-                "country_code": country_code,
-                "protocol_profile": protocol,
-                "config_path": relative_path,
-                "config_sha256": hashlib.sha256(
-                    content
-                ).hexdigest(),
-                "status": "config_downloaded",
-            })
-
-        # Replace the old collection only after every new file
-        # has been validated and staged.
-        OVPN.mkdir(parents=True, exist_ok=True)
-
-        for old in OVPN.glob("*.ovpn"):
-            old.unlink()
-
-        for staged_file in stage.glob("*.ovpn"):
-            staged_file.replace(OVPN / staged_file.name)
-
-    finally:
-        for leftover in stage.glob("*"):
-            if leftover.is_file():
-                leftover.unlink()
-        stage.rmdir()
-
-    write_json(DATA / "vpnbook.json", {
-        "source": "VPNBook",
-        "updated_at": now_utc(),
-        "official_page": PAGE,
-        "servers": servers,
-    })
-
-    print(
-        f"VPNBook: saved {len(servers)} validated configs to {OVPN}"
+    raise ValueError(
+        f"No valid .ovpn profile for {expected_host} in {download_path.name}"
     )
+
+
+def download_server(page, server: dict, temp_dir: Path) -> bytes:
+    page.goto(PAGE_URL, wait_until="domcontentloaded", timeout=60000)
+    page.locator("body").wait_for(state="visible")
+
+    # The current official page displays server names such as
+    # "US Server 1 us16.vpnbook.com".
+    click_visible_text(page, server["name"])
+    page.wait_for_timeout(500)
+
+    # Use TCP 443 as the default profile.
+    click_visible_text(page, "TCP 443")
+    page.wait_for_timeout(300)
+
+    download_path = temp_dir / f"{server['id']}-download"
+    try:
+        with page.expect_download(timeout=30000) as event:
+            click_download(page)
+
+        download = event.value
+        download.save_as(str(download_path))
+    except PlaywrightTimeoutError as exc:
+        # Save a screenshot for diagnosis in the GitHub Actions logs/artifacts.
+        screenshot = temp_dir / f"{server['id']}-download-error.png"
+        page.screenshot(path=str(screenshot), full_page=True)
+        raise RuntimeError(
+            f"VPNBook did not start a download for {server['id']}. "
+            f"Screenshot: {screenshot.name}"
+        ) from exc
+
+    return extract_ovpn(download_path, f"{server['id']}.vpnbook.com")
+
+
+def main() -> None:
+    JSON_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    # Stage everything separately so a failed run never deletes working configs.
+    with tempfile.TemporaryDirectory(prefix="vpnbook-") as temp:
+        temp_dir = Path(temp)
+        staged_profiles = {}
+        records = []
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                accept_downloads=True,
+                locale="en-US",
+            )
+            page = context.new_page()
+            page.set_default_timeout(10000)
+
+            try:
+                for server in SERVERS:
+                    print(f"Downloading VPNBook {server['id']} (TCP 443)...")
+                    profile = download_server(page, server, temp_dir)
+                    validate_ovpn(profile, f"{server['id']}.vpnbook.com")
+
+                    filename = f"{server['id']}-tcp443.ovpn"
+                    staged_profiles[filename] = profile
+
+                    records.append({
+                        "id": server["id"],
+                        "name": server["name"],
+                        "country": server["country"],
+                        "host": f"{server['id']}.vpnbook.com",
+                        "protocol": "TCP",
+                        "port": 443,
+                        "config_path": f"ovpn/vpnbook/{filename}",
+                        "sha256": sha256(profile),
+                    })
+                    print(f"Validated {filename}")
+            finally:
+                context.close()
+                browser.close()
+
+        if len(records) != len(SERVERS):
+            raise RuntimeError(
+                f"Expected {len(SERVERS)} profiles, got {len(records)}. "
+                "Existing VPNBook data was preserved."
+            )
+
+        # Save staged files before switching the JSON index.
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        for filename, profile in staged_profiles.items():
+            (OUTPUT_DIR / filename).write_bytes(profile)
+
+        payload = {
+            "source": PAGE_URL,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "servers": records,
+        }
+
+        new_json = JSON_FILE.with_suffix(".json.tmp")
+        new_json.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        new_json.replace(JSON_FILE)
+
+        # Remove obsolete .ovpn profiles only after the new JSON is ready.
+        expected_files = set(staged_profiles)
+        for old_file in OUTPUT_DIR.glob("*.ovpn"):
+            if old_file.name not in expected_files:
+                old_file.unlink()
+
+        print(f"VPNBook: saved {len(records)} validated profiles.")
+        print(f"JSON: {JSON_FILE.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
-    update_vpnbook()
+    main()
