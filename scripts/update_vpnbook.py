@@ -1,5 +1,8 @@
+import hashlib
+import io
 import json
 import re
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -9,14 +12,13 @@ from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
-CONFIGS = ROOT / "configs" / "vpnbook"
+OVPN = ROOT / "ovpn" / "vpnbook"
 
 PAGE = "https://www.vpnbook.com/freevpn/openvpn"
+BUNDLE_BASE = "https://www.vpnbook.com/free-openvpn-account/"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; GVPN/1.0)",
-    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-}
+HEADERS = {"User-Agent": "Mozilla/5.0 GVPN/1.0"}
+TIMEOUT = 45
 
 COUNTRIES = {
     "us": ("US", "United States"),
@@ -26,185 +28,292 @@ COUNTRIES = {
     "fr": ("FR", "France"),
 }
 
-TIMEOUT = 45
+MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024
 
 
-def fetch_page():
-    response = requests.get(
-        PAGE,
-        headers=HEADERS,
-        timeout=TIMEOUT,
+def now_utc():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def safe_name(value):
+    value = re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
+    return value.strip("._")[:120] or "config"
+
+
+def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(
+        json.dumps(value, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    temp.replace(path)
+
+
+def valid_ovpn(content):
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return False
+
+    has_client = bool(re.search(r"(?m)^\s*client\s*$", text))
+    has_remote = bool(re.search(r"(?m)^\s*remote\s+\S+", text))
+    return has_client and has_remote
+
+
+def discover_bundle_urls(session):
+    response = session.get(
+        PAGE, headers=HEADERS, timeout=TIMEOUT
     )
     response.raise_for_status()
 
-    if "html" not in response.headers.get(
-        "Content-Type", ""
-    ).lower():
-        raise RuntimeError("VPNBook did not return HTML.")
+    soup = BeautifulSoup(response.text, "html.parser")
+    found = {country: [] for country in COUNTRIES}
 
-    return response
+    # First use links explicitly published by the official page.
+    for anchor in soup.find_all("a", href=True):
+        url = urljoin(response.url, anchor["href"].strip())
+        parsed = urlparse(url)
+
+        if parsed.scheme != "https":
+            continue
+        if parsed.hostname not in {
+            "vpnbook.com", "www.vpnbook.com"
+        }:
+            continue
+        if not parsed.path.lower().endswith(".zip"):
+            continue
+
+        label = (
+            anchor.get_text(" ", strip=True) + " " +
+            parsed.path
+        ).lower()
+
+        for country in COUNTRIES:
+            if re.search(
+                r"(?<![a-z0-9])" + country + r"(?![a-z0-9])",
+                label,
+            ):
+                found[country].append(url)
+
+    # Known official legacy bundle naming convention.
+    # These are candidates, not guaranteed to exist.
+    for country in COUNTRIES:
+        fallback = (
+            BUNDLE_BASE
+            + f"vpnbook-openvpn-{country}.zip"
+        )
+        if fallback not in found[country]:
+            found[country].append(fallback)
+
+    return found
 
 
-def extract_servers(soup):
-    """Extract hostnames actually present on the official page."""
-    text = soup.get_text(" ", strip=True)
-
-    pattern = re.compile(
-        r"(?<![a-z0-9])"
-        r"([a-z]{2}\d+)\.vpnbook\.com"
-        r"(?![a-z0-9])",
-        re.IGNORECASE,
+def download_zip(session, url):
+    response = session.get(
+        url,
+        headers=HEADERS,
+        timeout=TIMEOUT,
+        stream=True,
     )
+    response.raise_for_status()
 
-    codes = sorted({
-        match.group(1).lower()
-        for match in pattern.finditer(text)
-    })
+    content = bytearray()
+
+    for chunk in response.iter_content(chunk_size=65536):
+        if not chunk:
+            continue
+
+        content.extend(chunk)
+
+        if len(content) > MAX_DOWNLOAD_BYTES:
+            raise RuntimeError("ZIP download exceeded size limit.")
+
+    data = bytes(content)
+
+    if not zipfile.is_zipfile(io.BytesIO(data)):
+        raise RuntimeError(
+            f"Response is not a ZIP archive: {url}"
+        )
+
+    return data
+
+
+def extract_profiles(zip_bytes):
+    profiles = {}
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        for info in archive.infolist():
+            if info.is_dir():
+                continue
+
+            # Never extract arbitrary archive paths.
+            name = Path(info.filename).name
+
+            if not name.lower().endswith(".ovpn"):
+                continue
+
+            if info.file_size > 2 * 1024 * 1024:
+                continue
+
+            content = archive.read(info)
+
+            if not valid_ovpn(content):
+                continue
+
+            filename = safe_name(name)
+            profiles[filename] = content
+
+    return profiles
+
+
+def fetch_country_profiles(session, country, urls):
+    errors = []
+
+    for url in urls:
+        try:
+            print(f"VPNBook [{country.upper()}]: downloading {url}")
+            data = download_zip(session, url)
+            profiles = extract_profiles(data)
+
+            if profiles:
+                print(
+                    f"VPNBook [{country.upper()}]: "
+                    f"validated {len(profiles)} profiles"
+                )
+                return profiles
+
+            errors.append(f"{url}: no valid .ovpn profiles")
+
+        except (requests.RequestException, RuntimeError, zipfile.BadZipFile) as exc:
+            errors.append(f"{url}: {exc}")
+
+    print(
+        f"VPNBook [{country.upper()}]: no usable bundle found"
+    )
+    for error in errors:
+        print("  -", error)
+
+    return {}
+
+
+def update_vpnbook():
+    print("Fetching VPNBook official page...")
+
+    with requests.Session() as session:
+        bundle_urls = discover_bundle_urls(session)
+
+        profiles = {}
+        profile_countries = {}
+
+        for country in COUNTRIES:
+            country_profiles = fetch_country_profiles(
+                session,
+                country,
+                bundle_urls[country],
+            )
+
+            for filename, content in country_profiles.items():
+                # Avoid collisions between country bundles.
+                output_name = safe_name(
+                    f"{country}_{filename}"
+                )
+
+                profiles[output_name] = content
+                profile_countries[output_name] = country
+
+    if not profiles:
+        raise RuntimeError(
+            "VPNBook returned no validated .ovpn profiles. "
+            "Existing config files and vpnbook.json were preserved. "
+            "Inspect the official download flow before updating URLs."
+        )
+
+    # Build a complete staging directory before replacing old files.
+    OVPN.parent.mkdir(parents=True, exist_ok=True)
+    stage = OVPN.with_name("vpnbook_staging")
+    stage.mkdir(parents=True, exist_ok=True)
 
     servers = []
 
-    for code in codes:
-        prefix = code[:2]
+    try:
+        for filename, content in profiles.items():
+            (stage / filename).write_bytes(content)
 
-        if prefix not in COUNTRIES:
-            continue
+            country = profile_countries[filename]
+            country_code, country_name = COUNTRIES[country]
 
-        country_code, country = COUNTRIES[prefix]
+            text = content.decode("utf-8-sig")
+            remote_match = re.search(
+                r"(?m)^\s*remote\s+(\S+)(?:\s+(\d+))?",
+                text,
+            )
+            hostname = (
+                remote_match.group(1)
+                if remote_match else None
+            )
+            port = (
+                int(remote_match.group(2))
+                if remote_match and remote_match.group(2)
+                else None
+            )
 
-        servers.append({
-            "id": "vpnbook-" + code,
-            "source": "VPNBook",
-            "hostname": code + ".vpnbook.com",
-            "country": country,
-            "country_code": country_code,
-            "config_download_urls": [],
-            "config_path": None,
-            "ping_ms_source": None,
-            "speed_bps_source": None,
-            "status": "server_listed_config_not_downloaded",
-        })
+            protocol = "unknown"
+            name_lower = filename.lower()
 
-    return servers
-
-
-def extract_direct_config_links(soup, page_url):
-    """Record only explicit ZIP/OVPN links from the page."""
-    links = []
-    seen = set()
-
-    for anchor in soup.find_all("a", href=True):
-        url = urljoin(page_url, anchor["href"].strip())
-        parsed = urlparse(url)
-        path = parsed.path.lower()
-
-        if parsed.scheme not in ("http", "https"):
-            continue
-
-        if parsed.netloc.lower() not in {
-            "vpnbook.com",
-            "www.vpnbook.com",
-            "static.vpnbook.com",
-        }:
-            continue
-
-        if not path.endswith((".zip", ".ovpn")):
-            continue
-
-        if url in seen:
-            continue
-
-        seen.add(url)
-        links.append({
-            "url": url,
-            "filename": Path(parsed.path).name,
-        })
-
-    return links
-
-
-def attach_links(servers, links):
-    """Attach links only when a hostname is explicitly identifiable."""
-    for link in links:
-        filename = link["filename"].lower()
-
-        for server in servers:
-            code = server["hostname"].split(".")[0]
-
-            if re.search(
-                r"(?<![a-z0-9])" + re.escape(code) +
-                r"(?![a-z0-9])",
-                filename,
+            for candidate in (
+                "tcp443", "tcp80", "udp53", "udp25000"
             ):
-                if link["url"] not in server["config_download_urls"]:
-                    server["config_download_urls"].append(
-                        link["url"]
-                    )
-                server["status"] = "config_link_found"
+                if candidate in name_lower:
+                    protocol = candidate
+                    break
 
+            relative_path = f"ovpn/vpnbook/{filename}"
 
-def write_json(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
+            servers.append({
+                "id": "vpnbook-" + hashlib.sha256(
+                    filename.encode()
+                ).hexdigest()[:16],
+                "source": "VPNBook",
+                "hostname": hostname,
+                "port": port,
+                "country": country_name,
+                "country_code": country_code,
+                "protocol_profile": protocol,
+                "config_path": relative_path,
+                "config_sha256": hashlib.sha256(
+                    content
+                ).hexdigest(),
+                "status": "config_downloaded",
+            })
 
-    temp_path = path.with_suffix(path.suffix + ".tmp")
-    temp_path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    temp_path.replace(path)
+        # Replace the old collection only after every new file
+        # has been validated and staged.
+        OVPN.mkdir(parents=True, exist_ok=True)
 
+        for old in OVPN.glob("*.ovpn"):
+            old.unlink()
 
-def main():
-    print("Fetching VPNBook official page...")
-    response = fetch_page()
+        for staged_file in stage.glob("*.ovpn"):
+            staged_file.replace(OVPN / staged_file.name)
 
-    print("HTTP status:", response.status_code)
-    print("Final URL:", response.url)
+    finally:
+        for leftover in stage.glob("*"):
+            if leftover.is_file():
+                leftover.unlink()
+        stage.rmdir()
 
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    servers = extract_servers(soup)
-    links = extract_direct_config_links(soup, response.url)
-
-    print("Server hostnames found:", len(servers))
-    print("Direct config links found:", len(links))
-
-    if not servers:
-        title = (
-            soup.title.get_text(" ", strip=True)
-            if soup.title else "Missing"
-        )
-        raise RuntimeError(
-            "No VPNBook server hostnames found. "
-            f"Page title: {title}. Existing data preserved."
-        )
-
-    attach_links(servers, links)
-
-    output = {
+    write_json(DATA / "vpnbook.json", {
         "source": "VPNBook",
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "official_page": response.url,
+        "updated_at": now_utc(),
+        "official_page": PAGE,
         "servers": servers,
-    }
+    })
 
-    output_path = DATA / "vpnbook.json"
-    write_json(output_path, output)
-
-    print(f"VPNBook: recorded {len(servers)} servers")
-    print("Output:", output_path)
-
-    without_configs = sum(
-        not server["config_download_urls"]
-        for server in servers
+    print(
+        f"VPNBook: saved {len(servers)} validated configs to {OVPN}"
     )
-
-    if without_configs:
-        print(
-            f"Notice: {without_configs} servers have no direct "
-            "config download URL. They are listed, not ready "
-            "to connect using a downloaded .ovpn file."
-        )
 
 
 if __name__ == "__main__":
-    main()
+    update_vpnbook()
