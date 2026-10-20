@@ -37,8 +37,12 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+
 def validate_ovpn(data: bytes, expected_host: str) -> str:
+    import ipaddress
+
     text = data.decode("utf-8", errors="replace")
+
     if len(text) < 100:
         raise ValueError("Downloaded config is too small.")
 
@@ -46,15 +50,22 @@ def validate_ovpn(data: bytes, expected_host: str) -> str:
         raise ValueError("Config is missing the OpenVPN client directive.")
 
     remotes = re.findall(r"(?m)^\s*remote\s+(\S+)", text)
+
     if not remotes:
         raise ValueError("Config has no remote server.")
 
-    if not any(expected_host.lower() in host.lower() for host in remotes):
-        raise ValueError(
-            f"Config remote does not match {expected_host}: {remotes}"
-        )
+    for host in remotes:
+        try:
+            ipaddress.ip_address(host)
+            return text
+        except ValueError:
+            if host.lower() == expected_host.lower():
+                return text
 
-    return text
+    raise ValueError(
+        f"Config remote does not match expected host/IP "
+        f"{expected_host}: {remotes}"
+    )
 
 
 def click_visible_text(page, text: str) -> None:
