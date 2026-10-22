@@ -35,7 +35,34 @@ SERVERS = [
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+def extract_credentials(page):
+    """Read the current public credentials from VPNBook's official page."""
+    import re
 
+    text = page.locator("body").inner_text()
+
+    username_match = re.search(
+        r"Username\s+([A-Za-z0-9_.-]+)",
+        text,
+        re.IGNORECASE,
+    )
+    password_match = re.search(
+        r"Password\s+([A-Za-z0-9_.!@#$%^&*+-]+)",
+        text,
+        re.IGNORECASE,
+    )
+
+    if not username_match or not password_match:
+        raise RuntimeError(
+            "VPNBook credentials not found. "
+            "The official page may have changed; refusing to publish "
+            "incomplete server data."
+        )
+
+    return {
+        "username": username_match.group(1),
+        "password": password_match.group(1),
+    }
 
 
 def validate_ovpn(data: bytes, expected_host: str) -> str:
