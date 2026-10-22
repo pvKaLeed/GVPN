@@ -1,4 +1,3 @@
-# scripts/update_servers.py
 
 import base64
 import csv
@@ -44,41 +43,37 @@ def write_json_atomic(path, payload):
 
 def parse_int(value):
     try:
-        result = int(value)
-        return result if result >= 0 else None
+        number = int(value)
+        return number if number >= 0 else None
     except (TypeError, ValueError):
         return None
 
 
-def validate_profile(config, expected_host, expected_ip):
+def validate_profile(config, hostname, ip):
     if len(config) < 100:
-        raise ValueError("Profile is unexpectedly small")
+        raise ValueError("Profile is too small")
 
     if not re.search(r"(?m)^\s*client\s*$", config):
         raise ValueError("Missing client directive")
 
     remotes = re.findall(
-        r"(?m)^\s*remote\s+(\S+)(?:\s+\d+)?",
+        r"(?m)^\s*remote\s+(\S+)",
         config,
     )
     if not remotes:
         raise ValueError("Missing remote directive")
 
-    if not any(
-        host.lower() in {expected_host.lower(), expected_ip.lower()}
-        for host in remotes
-    ):
-        raise ValueError(
-            f"Profile remote does not match server: {remotes}"
-        )
+    expected = {hostname.lower(), ip.lower()}
+    if not any(remote.lower() in expected for remote in remotes):
+        raise ValueError(f"Unexpected remote: {remotes}")
 
-    # Reject directives that could execute external commands.
+    # Do not accept profiles containing external command hooks.
     forbidden = re.compile(
         r"(?im)^\s*(up|down|route-up|ipchange|plugin|"
-        r"tls-verify|client-connect|client-disconnect)\s+"
+        r"client-connect|client-disconnect)\s+"
     )
     if forbidden.search(config):
-        raise ValueError("Profile contains a disallowed command directive")
+        raise ValueError("Profile contains a disallowed command")
 
     return config.rstrip() + "\n"
 
@@ -103,14 +98,13 @@ def update_vpngate():
         None,
     )
     if header_index is None:
-        raise RuntimeError("VPN Gate API CSV header not found")
+        raise RuntimeError("VPN Gate CSV header not found")
 
-    reader = csv.DictReader(
-        io.StringIO("\n".join(
-            [lines[header_index].lstrip("#")]
-            + lines[header_index + 1:]
-        ))
+    csv_text = "\n".join(
+        [lines[header_index].lstrip("#")]
+        + lines[header_index + 1:]
     )
+    reader = csv.DictReader(io.StringIO(csv_text))
 
     staged_profiles = {}
     servers = []
@@ -127,26 +121,31 @@ def update_vpngate():
 
         try:
             raw = base64.b64decode(encoded, validate=True)
-            config = raw.decode("utf-8")
-            config = validate_profile(config, hostname, ip)
+            config = validate_profile(
+                raw.decode("utf-8"),
+                hostname,
+                ip,
+            )
         except (ValueError, UnicodeDecodeError) as exc:
-            print(f"Skipping invalid profile {hostname}: {exc}")
+            print(f"Skipping {hostname}: {exc}")
             continue
-
-        server_id = hashlib.sha256(
-            f"{hostname}|{ip}".encode()
-        ).hexdigest()[:16]
 
         filename = safe_name(f"{hostname}_{ip}") + ".ovpn"
         relative_path = f"ovpn/vpngate/{filename}"
+        config_bytes = config.encode("utf-8")
 
-        # VPN Gate's public OpenVPN instructions use vpn/vpn
-        # when a server asks for credentials.
         auth_required = bool(
-            re.search(r"(?im)^\s*auth-user-pass(?:\s|$)", config)
+            re.search(
+                r"(?im)^\s*auth-user-pass(?:\s|$)",
+                config,
+            )
         )
 
-        record = {
+        server_id = hashlib.sha256(
+            f"{hostname}|{ip}".encode("utf-8")
+        ).hexdigest()[:16]
+
+        servers.append({
             "id": server_id,
             "source": "VPN Gate",
             "hostname": hostname,
@@ -155,12 +154,13 @@ def update_vpngate():
             "country_code": (row.get("CountryShort") or "").strip(),
             "ping_ms_source": parse_int(row.get("Ping")),
             "speed_bps_source": parse_int(row.get("Speed")),
-            "sessions_reported": parse_int(row.get("NumVpnSessions")),
-            "uptime_seconds_source": parse_int(row.get("Uptime")),
+            "sessions_reported": parse_int(
+                row.get("NumVpnSessions")
+            ),
             "config_path": relative_path,
             "config_url": f"{RAW_BASE}/{relative_path}",
             "config_sha256": hashlib.sha256(
-                config.encode("utf-8")
+                config_bytes
             ).hexdigest(),
             "auth_required": auth_required,
             "auth": (
@@ -169,63 +169,58 @@ def update_vpngate():
             ),
             "validated_at": now_utc(),
             "validation": "syntax_checked",
-        }
-
-        staged_profiles[filename] = config
-        servers.append(record)
+        })
+        staged_profiles[filename] = config_bytes
 
     if not servers:
         raise RuntimeError(
-            "No valid VPN Gate profiles; existing data preserved"
+            "No valid VPN Gate profiles found; existing data preserved"
         )
 
-    # Stage profiles before replacing the existing set.
+    # Stage all profiles first. Do not clear the current profiles
+    # until the new set has been prepared successfully.
     stage_dir = OVPN_DIR.with_name("vpngate_staging")
-    if stage_dir.exists():
-        import shutil
-        shutil.rmtree(stage_dir)
+    import shutil
+    shutil.rmtree(stage_dir, ignore_errors=True)
     stage_dir.mkdir(parents=True)
 
     try:
-        for filename, config in staged_profiles.items():
-            (stage_dir / filename).write_text(
-                config, encoding="utf-8"
-            )
+        for filename, content in staged_profiles.items():
+            (stage_dir / filename).write_bytes(content)
 
         OVPN_DIR.mkdir(parents=True, exist_ok=True)
 
         for staged_file in stage_dir.glob("*.ovpn"):
             staged_file.replace(OVPN_DIR / staged_file.name)
 
-        # Remove old profiles only after all new profiles were staged.
-        expected = set(staged_profiles)
+        expected_files = set(staged_profiles)
         for old_file in OVPN_DIR.glob("*.ovpn"):
-            if old_file.name not in expected:
+            if old_file.name not in expected_files:
                 old_file.unlink()
 
-        payload = {
+        write_json_atomic(DATA_DIR / "vpngate.json", {
             "schema_version": 2,
             "source": "VPN Gate",
             "source_url": API_URL,
             "updated_at": now_utc(),
             "server_count": len(servers),
             "servers": servers,
-        }
-        write_json_atomic(DATA_DIR / "vpngate.json", payload)
-
+        })
     finally:
-        import shutil
         shutil.rmtree(stage_dir, ignore_errors=True)
 
-    print(f"VPN Gate: saved {len(servers)} validated profiles")
+    print(f"VPN Gate: saved {len(servers)} profiles")
 
 
 def main():
     update_vpngate()
 
-    # Keep VPNBook updating in the same scheduled workflow.
+    # Update VPNBook in the same GitHub Actions run.
     subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "update_vpnbook.py")],
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "update_vpnbook.py"),
+        ],
         check=True,
         cwd=ROOT,
     )
