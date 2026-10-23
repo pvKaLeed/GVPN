@@ -1,3 +1,4 @@
+
 name: Update GVPN Servers
 
 on:
@@ -8,7 +9,7 @@ on:
     paths:
       - "scripts/**"
       - "requirements.txt"
-      - ".github/workflows/update-servers.yml"
+      - ".github/workflows/update_servers.yml"
 
 permissions:
   contents: write
@@ -47,8 +48,8 @@ jobs:
       - name: Validate JSON and config paths
         run: |
           python - <<'PY'
-          import json
           import hashlib
+          import json
           from pathlib import Path
 
           root = Path(".")
@@ -67,20 +68,50 @@ jobs:
                   assert config.endswith(".ovpn")
 
                   file_path = root / config
-                  assert file_path.is_file(), f"{name}: missing {config}"
+                  assert file_path.is_file(), (
+                      f"{name}: missing {config}"
+                  )
 
                   content = file_path.read_bytes()
-                  assert b"client" in content
-                  assert b"remote " in content
+                  text = content.decode("utf-8")
 
-                  expected_hash = server.get("sha256")
+                  assert "client" in text.splitlines(), (
+                      f"{name}: missing client directive in {config}"
+                  )
+                  assert any(
+                      line.strip().startswith("remote ")
+                      for line in text.splitlines()
+                  ), f"{name}: missing remote directive in {config}"
+
+                  expected_hash = (
+                      server.get("sha256")
+                      or server.get("config_sha256")
+                  )
+
                   if expected_hash:
-                      actual_hash = hashlib.sha256(content).hexdigest()
+                      actual_hash = hashlib.sha256(
+                          content
+                      ).hexdigest()
+
                       assert actual_hash == expected_hash, (
                           f"{name}: SHA-256 mismatch for {config}"
                       )
 
-              print(f"{name}: validated {len(servers)} profiles")
+                  if server.get("auth_required"):
+                      auth = server.get("auth")
+                      assert isinstance(auth, dict), (
+                          f"{name}: missing auth object for {config}"
+                      )
+                      assert auth.get("username"), (
+                          f"{name}: missing username for {config}"
+                      )
+                      assert auth.get("password"), (
+                          f"{name}: missing password for {config}"
+                      )
+
+              print(
+                  f"{name}: validated {len(servers)} profiles"
+              )
           PY
 
       - name: Commit updated data and configs
