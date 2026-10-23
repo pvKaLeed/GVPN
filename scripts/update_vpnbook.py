@@ -4,6 +4,9 @@ import json
 import re
 import shutil
 import tempfile
+import ipaddress
+import re
+
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,6 +85,9 @@ def extract_credentials(page):
     return {"username": username, "password": password}
 
 
+
+
+
 def validate_ovpn(data, expected_host):
     text = data.decode("utf-8", errors="strict")
 
@@ -91,22 +97,42 @@ def validate_ovpn(data, expected_host):
     if not re.search(r"(?m)^\s*client\s*$", text):
         raise ValueError("Missing client directive")
 
-    remotes = re.findall(r"(?m)^\s*remote\s+(\S+)", text)
+    remotes = re.findall(
+        r"(?m)^\s*remote\s+(\S+)",
+        text,
+    )
+
     if not remotes:
         raise ValueError("Missing remote directive")
 
-    if not any(
-        remote.lower() == expected_host.lower()
-        for remote in remotes
-    ):
+    # VPNBook profiles may specify either a hostname or an IP address.
+    # Since this profile is downloaded from VPNBook's official page,
+    # accept a valid IP as well as the expected hostname.
+    valid_remote = False
+
+    for remote in remotes:
+        if remote.rstrip(".").lower() == expected_host.lower():
+            valid_remote = True
+            break
+
+        try:
+            ipaddress.ip_address(remote.strip("[]"))
+            valid_remote = True
+            break
+        except ValueError:
+            continue
+
+    if not valid_remote:
         raise ValueError(
-            f"Remote does not match {expected_host}: {remotes}"
+            f"Remote is neither the expected hostname nor a valid IP: "
+            f"{remotes}"
         )
 
     forbidden = re.compile(
         r"(?im)^\s*(up|down|route-up|ipchange|plugin|"
         r"client-connect|client-disconnect)\s+"
     )
+
     if forbidden.search(text):
         raise ValueError("Profile contains a disallowed command")
 
