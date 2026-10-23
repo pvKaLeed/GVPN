@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source": "https://www.vpnbook.com/freevpn/openvpn",
-  "updated_at": "2026-10-23T11:47:35.766173+00:00",
+  "updated_at": "2026-10-23T17:06:55.965835+00:00",
   "server_count": 10,
   "servers": [
     {
@@ -20,7 +20,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:21.253344+00:00",
+      "validated_at": "2026-10-23T17:06:41.527219+00:00",
       "validation": "syntax_checked"
     },
     {
@@ -39,7 +39,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:22.794045+00:00",
+      "validated_at": "2026-10-23T17:06:42.995142+00:00",
       "validation": "syntax_checked"
     },
     {
@@ -58,7 +58,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:24.425725+00:00",
+      "validated_at": "2026-10-23T17:06:44.549177+00:00",
       "validation": "syntax_checked"
     },
     {
@@ -77,7 +77,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:26.051162+00:00",
+      "validated_at": "2026-10-23T17:06:46.132428+00:00",
       "validation": "syntax_checked"
     },
     {
@@ -96,7 +96,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:27.931792+00:00",
+      "validated_at": "2026-10-23T17:06:47.785228+00:00",
       "validation": "syntax_checked"
     },
     {
@@ -115,7 +115,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:29.443188+00:00",
+      "validated_at": "2026-10-23T17:06:49.447756+00:00",
       "validation": "syntax_checked"
     },
     {
@@ -134,7 +134,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:31.028062+00:00",
+      "validated_at": "2026-10-23T17:06:51.065812+00:00",
       "validation": "syntax_checked"
     },
     {
@@ -153,7 +153,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:32.661130+00:00",
+      "validated_at": "2026-10-23T17:06:52.732453+00:00",
       "validation": "syntax_checked"
     },
     {
@@ -172,7 +172,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:34.176214+00:00",
+      "validated_at": "2026-10-23T17:06:54.315287+00:00",
       "validation": "syntax_checked"
     },
     {
@@ -191,7 +191,7 @@
         "username": "vpnbook",
         "password": "dhnfcw2"
       },
-      "validated_at": "2026-10-23T11:47:35.672985+00:00",
+      "validated_at": "2026-10-23T17:06:55.879526+00:00",
       "validation": "syntax_checked"
     }
   ]
